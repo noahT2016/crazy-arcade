@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Planet Merge</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Exo+2:wght@400;600;800&display=swap');
+
+:root {
+  --bg-deep:    #0b1622;
+  --bg-mid:     #0f2233;
+  --bg-panel:   #132840;
+  --accent-teal:#1dd1a1;
+  --accent-blue:#48cae4;
+  --accent-gray:#8fafc7;
+  --border:     rgba(72,202,228,0.18);
+  --text:       #d4eaf7;
+  --text-dim:   #5a7e9a;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+
+html, body {
+  width:100%; height:100%;
+  background: var(--bg-deep);
+  display:flex; flex-direction:column; align-items:center;
+  font-family: 'Exo 2', sans-serif;
+  overflow:hidden;
+  touch-action: none;
+}
+
+body::before {
+  content:'';
+  position:fixed; inset:0;
+  background:
+    radial-gradient(ellipse at 15% 10%, rgba(29,209,161,0.07) 0%, transparent 45%),
+    radial-gradient(ellipse at 85% 90%, rgba(72,202,228,0.06) 0%, transparent 45%);
+  pointer-events:none;
+}
+
+/* ── TOP BAR ───────────────────────────────────── */
+#topbar {
+  width:100%; max-width:420px;
+  display:flex; align-items:center; justify-content:space-between;
+  padding: 10px 14px 6px;
+  flex-shrink:0;
+}
+
+.score-block { display:flex; flex-direction:column; align-items:center; }
+.score-label {
+  font-family:'Orbitron',sans-serif;
+  font-size:9px; font-weight:700;
+  letter-spacing:2px; color:var(--text-dim);
+  text-transform:uppercase;
+}
+.score-value {
+  font-family:'Orbitron',sans-serif;
+  font-size:26px; font-weight:900;
+  color:var(--text);
+  text-shadow: 0 0 12px rgba(72,202,228,0.5);
+  line-height:1.1;
+}
+.score-value.best { color:var(--accent-teal); font-size:20px; }
+
+/* next fruit preview */
+#next-block {
+  display:flex; flex-direction:column; align-items:center; gap:3px;
+}
+#next-canvas { border-radius:14px; background:var(--bg-panel);
+  border:1px solid var(--border);
+  box-shadow: 0 0 10px rgba(72,202,228,0.15); }
+
+/* ── GAME AREA ─────────────────────────────────── */
+#game-wrap {
+  position:relative;
+  flex:1;
+  width:100%; max-width:420px;
+  display:flex; flex-direction:column;
+  padding: 0 10px 6px;
+  min-height:0;
+}
+
+#canvas-container {
+  position:relative;
+  flex:1;
+  max-height: 380px;
+  border-radius:16px;
+  overflow:hidden;
+  border: 1.5px solid var(--border);
+  box-shadow:
+    0 0 0 1px rgba(29,209,161,0.08),
+    0 8px 40px rgba(0,0,0,0.5),
+    inset 0 1px 0 rgba(255,255,255,0.06);
+  background: var(--bg-mid);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+#game-canvas { display:block; }
+
+/* drop guide line */
+#drop-guide {
+  position:absolute;
+  top:0; bottom:0;
+  width:1px;
+  background: linear-gradient(to bottom,
+    rgba(72,202,228,0.5) 0%,
+    rgba(72,202,228,0.1) 60%,
+    transparent 100%);
+  pointer-events:none;
+  transform:translateX(-50%);
+}
+
+/* fruit shadow under cursor */
+#drop-ghost {
+  position:absolute;
+  border-radius:50%;
+  border:2px dashed rgba(72,202,228,0.45);
+  pointer-events:none;
+  transform:translate(-50%,-50%);
+  transition: width .08s, height .08s;
+}
+
+/* danger line */
+#danger-line {
+  position:absolute;
+  left:0; right:0;
+  height:2px;
+  background: rgba(255,90,90,0);
+  transition: background .4s, box-shadow .4s;
+  pointer-events:none;
+}
+#danger-line.hot {
+  background: rgba(255,90,90,0.7);
+  box-shadow: 0 0 8px rgba(255,90,90,0.6);
+}
+
+/* ── FRUIT GUIDE STRIP ─────────────────────────── */
+#guide-strip {
+  display:flex; align-items:center; justify-content:center;
+  gap:6px; padding:6px 4px 2px;
+  overflow-x:auto; scrollbar-width:none;
+  flex-shrink:0;
+}
+#guide-strip::-webkit-scrollbar { display:none; }
+
+.g-item {
+  display:flex; flex-direction:column; align-items:center; gap:1px;
+  flex-shrink:0;
+}
+.g-circle {
+  border-radius:50%;
+  border:1.5px solid rgba(255,255,255,0.2);
+}
+.g-pts {
+  font-size:8px; font-weight:800;
+  color:var(--text-dim);
+}
+
+/* ── OVERLAY ───────────────────────────────────── */
+#overlay {
+  position:absolute; inset:0;
+  display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  background: rgba(11,22,34,0.88);
+  backdrop-filter:blur(10px);
+  border-radius:14px;
+  z-index:20;
+  gap:8px;
+  padding:20px;
+}
+
+.ov-title {
+  font-family:'Orbitron',sans-serif;
+  font-size:34px; font-weight:900;
+  color:var(--accent-blue);
+  text-shadow:0 0 24px rgba(72,202,228,0.7);
+  letter-spacing:2px;
+}
+.ov-title.gameover { color:#ff6b6b; text-shadow:0 0 24px rgba(255,100,100,0.7); }
+
+.ov-sub {
+  font-size:13px; font-weight:600;
+  color:var(--text-dim);
+  text-align:center; line-height:1.5;
+  max-width:240px;
+}
+
+.ov-score {
+  font-family:'Orbitron',sans-serif;
+  font-size:22px; font-weight:700;
+  color:var(--accent-teal);
+  margin-top:4px;
+}
+
+.btn-play {
+  margin-top:10px;
+  font-family:'Orbitron',sans-serif;
+  font-size:16px; font-weight:700;
+  letter-spacing:1.5px;
+  padding:14px 40px;
+  border:none; border-radius:50px;
+  background: linear-gradient(135deg, #1a7f6a, #0e6e8c);
+  color:#fff;
+  cursor:pointer;
+  box-shadow: 0 4px 20px rgba(29,209,161,0.35), 0 0 0 1.5px rgba(29,209,161,0.3);
+  transition: transform .15s, box-shadow .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn-play:active { transform:scale(0.95); }
+
+/* merge burst */
+.burst {
+  position:absolute;
+  border-radius:50%;
+  pointer-events:none;
+  transform:translate(-50%,-50%) scale(0.3);
+  animation: burst-anim .5s ease-out forwards;
+  z-index:8;
+}
+@keyframes burst-anim {
+  0%   { transform:translate(-50%,-50%) scale(0.3); opacity:1; }
+  60%  { opacity:0.8; }
+  100% { transform:translate(-50%,-50%) scale(2.4); opacity:0; }
+}
+
+/* score pop */
+.score-pop {
+  position:absolute;
+  font-family:'Orbitron',sans-serif;
+  font-size:14px; font-weight:700;
+  color:var(--accent-teal);
+  pointer-events:none;
+  animation: pop-up .8s ease-out forwards;
+  z-index:9;
+  text-shadow:0 0 8px rgba(29,209,161,0.8);
+  white-space:nowrap;
+}
+@keyframes pop-up {
+  0%   { transform:translate(-50%,-50%) scale(0.5); opacity:1; }
+  60%  { transform:translate(-50%,-90%) scale(1.1); opacity:1; }
+  100% { transform:translate(-50%,-150%) scale(1); opacity:0; }
+}
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div id="topbar">
+  <div class="score-block">
+    <div class="score-label">Score</div>
+    <div class="score-value" id="score-el">0</div>
+  </div>
+  <div id="next-block">
+    <div class="score-label">Next</div>
+    <canvas id="next-canvas" width="72" height="72"></canvas>
+  </div>
+  <div class="score-block">
+    <div class="score-label">Best</div>
+    <div class="score-value best" id="best-el">0</div>
+  </div>
+</div>
+
+<!-- GAME -->
+<div id="game-wrap">
+  <div id="canvas-container">
+    <canvas id="game-canvas"></canvas>
+    <div id="drop-guide"></div>
+    <div id="drop-ghost"></div>
+    <div id="danger-line"></div>
+    <div id="overlay">
+      <div class="ov-title">PLANET<br>MERGE</div>
+      <div class="ov-sub">Tap to drop planets · Match two to merge · Reach the CYPHER to win!</div>
+      <button class="btn-play" id="start-btn">START GAME</button>
+    </div>
+  </div>
+
+  <!-- fruit guide strip -->
+  <div id="guide-strip"></div>
+</div>
+
+<script>
+// ─── FRUIT DATA ──────────────────────────────────────────────────────────────
+// Boyish blue/green/gray palette
+const FRUITS = [
+  { name:'METEOR',  r:20,  color:'#a07850', shadow:'#5a3e20', pts:1,   style:'meteor'  },
+  { name:'SHARD',   r:27,  color:'#4fc3f7', shadow:'#0277bd', pts:3,   style:'shard'   },
+  { name:'PROBE',   r:34,  color:'#78909c', shadow:'#37474f', pts:6,   style:'probe'   },
+  { name:'ION',     r:42,  color:'#00e5ff', shadow:'#006080', pts:10,  style:'ion'     },
+  { name:'PULSAR',  r:52,  color:'#e040fb', shadow:'#6a0080', pts:15,  style:'pulsar'  },
+  { name:'VORTEX',  r:62,  color:'#00bfa5', shadow:'#004d40', pts:21,  style:'vortex'  },
+  { name:'NOVA',    r:73,  color:'#ff6d00', shadow:'#bf360c', pts:28,  style:'nova'    },
+  { name:'QUASAR',  r:85,  color:'#3d5afe', shadow:'#1a237e', pts:36,  style:'quasar'  },
+  { name:'PLANET',  r:98,  color:'#1de9b6', shadow:'#00695c', pts:45,  style:'planet'  },
+  { name:'NEBULA',  r:112, color:'#aa00ff', shadow:'#4a0080', pts:55,  style:'nebula'  },
+  { name:'CYPHER',  r:128, color:'#00e5ff', shadow:'#0077b6', pts:100, style:'cypher'  },
+];
+
+const MAX_DROP = 5; // only first 5 types drop randomly
+
+// ─── STATE ────────────────────────────────────────────────────────────────────
+let engine, runner, bodies = [], mergeSet = new Set();
+let score = 0, best = 0;
+let curIdx = 0, nxtIdx = 0;
+let cursorX = 0;
+let isDragging = false;
+let canDrop = false, gameActive = false;
+let canvasW, canvasH;
+
+// ─── ELEMENTS ─────────────────────────────────────────────────────────────────
+const container   = document.getElementById('canvas-container');
+const gameCanvas  = document.getElementById('game-canvas');
+const ctx         = gameCanvas.getContext('2d');
+const nextCanvas  = document.getElementById('next-canvas');
+const nctx        = nextCanvas.getContext('2d');
+const overlay     = document.getElementById('overlay');
+const scoreEl     = document.getElementById('score-el');
+const bestEl      = document.getElementById('best-el');
+const dropGuide   = document.getElementById('drop-guide');
+const dropGhost   = document.getElementById('drop-ghost');
+const dangerLine  = document.getElementById('danger-line');
+const startBtn    = document.getElementById('start-btn');
+
+// ─── LAYOUT ──────────────────────────────────────────────────────────────────
+function resize() {
+  const rect = container.getBoundingClientRect();
+  canvasW = rect.width;
+  canvasH = rect.height;
+  gameCanvas.width  = canvasW;
+  gameCanvas.height = canvasH;
+  cursorX = canvasW / 2;
+  dangerLine.style.top = WALL_TOP + 'px';
+}
+
+const WALL_TOP  = 60;   // danger / drop zone line
+const WALL_T    = 24;
+
+// ─── PHYSICS SETUP ───────────────────────────────────────────────────────────
+const { Engine, Runner, Bodies, Body, World, Events } = Matter;
+
+function initPhysics() {
+  engine = Engine.create({ gravity:{ y: 0.6 } });
+  const W = canvasW, H = canvasH, T = WALL_T;
+  const opt = { isStatic:true, friction:.4, restitution:.15, label:'wall' };
+  World.add(engine.world, [
+    Bodies.rectangle(W/2, H + T/2,     W + T*2, T, opt),   // floor
+    Bodies.rectangle(-T/2, H/2,        T, H*3,   opt),      // left
+    Bodies.rectangle(W + T/2, H/2,     T, H*3,   opt),      // right
+  ]);
+  runner = Runner.create();
+  Runner.run(runner, engine);
+  Events.on(engine, 'collisionStart', onCollision);
+}
+
+function cleanPhysics() {
+  if (runner) Runner.stop(runner);
+  if (engine) { World.clear(engine.world); Engine.clear(engine); }
+  bodies = []; mergeSet.clear();
+}
+
+// ─── GAME START / RESET ──────────────────────────────────────────────────────
+function startGame(e) {
+  if (e) { e.stopPropagation(); e.preventDefault(); }
+  overlay.style.display = 'none';
+
+  // Allow layout to settle before measuring canvas size
+  requestAnimationFrame(() => {
+    resize();
+    cleanPhysics();
+    score = 0;
+    updateScore(0);
+    gameActive = true;
+    canDrop    = true;
+
+    initPhysics();
+    curIdx = rand5();
+    nxtIdx = rand5();
+    cursorX = canvasW / 2;
+    drawNext();
+    requestAnimationFrame(loop);
+  });
+}
+
+function gameOver() {
+  gameActive = false;
+  canDrop    = false;
+  if (score > best) { best = score; bestEl.textContent = best; }
+
+  overlay.innerHTML = `
+    <div class="ov-title gameover">GAME<br>OVER</div>
+    <div class="ov-score">Score: ${score}</div>
+    <div class="ov-sub">${score > 0 ? 'Nice run! Can you beat it?' : 'Try again!'}</div>
+    <button class="btn-play" id="restart-btn">PLAY AGAIN</button>`;
+  overlay.style.display = 'flex';
+  document.getElementById('restart-btn').addEventListener('click', startGame);
+  document.getElementById('restart-btn').addEventListener('touchend', startGame, {passive:false});
+}
+
+// ─── FRUIT SPAWN ─────────────────────────────────────────────────────────────
+function dropFruit() {
+  if (!canDrop || !gameActive) return;
+  canDrop = false;
+
+  const f = FRUITS[curIdx];
+  const x = clamp(cursorX, f.r + 2, canvasW - f.r - 2);
+  const y = WALL_TOP - f.r - 4;
+
+  const b = Bodies.circle(x, y, f.r, {
+    restitution: .2,
+    friction: .5,
+    frictionAir: .006,
+    density: .004,
+    label: 'fruit',
+  });
+  b.fruitIdx = curIdx;
+  bodies.push(b);
+  World.add(engine.world, b);
+
+  curIdx = nxtIdx;
+  nxtIdx = rand5();
+  drawNext(); // now shows the new current (curIdx)
+
+  setTimeout(() => {
+    if (gameActive) canDrop = true;
+  }, 320);
+}
+
+// ─── COLLISION / MERGE ───────────────────────────────────────────────────────
+function onCollision(e) {
+  for (const pair of e.pairs) {
+    const a = pair.bodyA, b = pair.bodyB;
+    if (a.label !== 'fruit' || b.label !== 'fruit') continue;
+    if (a.fruitIdx !== b.fruitIdx) continue;
+    if (mergeSet.has(a.id) || mergeSet.has(b.id)) continue;
+    const idx = a.fruitIdx;
+    if (idx >= FRUITS.length - 1) continue;
+
+    mergeSet.add(a.id); mergeSet.add(b.id);
+    const mx = (a.position.x + b.position.x) / 2;
+    const my = (a.position.y + b.position.y) / 2;
+
+    setTimeout(() => {
+      if (!engine) return;
+      World.remove(engine.world, a);
+      World.remove(engine.world, b);
+      bodies = bodies.filter(x => x.id !== a.id && x.id !== b.id);
+      mergeSet.delete(a.id); mergeSet.delete(b.id);
+
+      const ni = idx + 1;
+      const nf = FRUITS[ni];
+      const nb = Bodies.circle(mx, my, nf.r, {
+        restitution:.2, friction:.5, frictionAir:.006, density:.004, label:'fruit',
+      });
+      nb.fruitIdx = ni;
+      bodies.push(nb);
+      World.add(engine.world, nb);
+
+      spawnBurst(mx, my, nf.r, nf.color);
+      spawnScorePop(mx, my, nf.pts);
+      updateScore(score + nf.pts);
+    }, 30);
+  }
+}
+
+// ─── DANGER CHECK ────────────────────────────────────────────────────────────
+let dangerFrames = 0;
+function checkDanger() {
+  const danger = bodies.some(b => b.position.y - b.circleRadius < WALL_TOP + 10);
+  if (danger) {
+    dangerLine.classList.add('hot');
+    dangerFrames++;
+    if (dangerFrames > 160) gameOver();
+  } else {
+    dangerLine.classList.remove('hot');
+    dangerFrames = 0;
+  }
+}
+
+// ─── RENDER ──────────────────────────────────────────────────────────────────
+function clipCircle(cx, cy, r) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI*2);
+  ctx.clip();
+}
+
+function drawFruit(cx, cy, r, color, shadow, label, style) {
+  drawFruitOn(ctx, cx, cy, r, color, shadow, label, style);
+}
+
+
+
+function loop() {
+  if (!gameActive) return;
+  Engine.update(engine, 1000/60);
+  checkDanger();
+
+  ctx.clearRect(0, 0, canvasW, canvasH);
+
+  // subtle grid bg
+  ctx.strokeStyle = 'rgba(72,202,228,0.04)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < canvasW; x += 30) {
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,canvasH); ctx.stroke();
+  }
+  for (let y = 0; y < canvasH; y += 30) {
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvasW,y); ctx.stroke();
+  }
+
+  // drop zone tint
+  ctx.fillStyle = 'rgba(255,80,80,0.03)';
+  ctx.fillRect(0, 0, canvasW, WALL_TOP);
+
+  // fruits
+  for (const b of bodies) {
+    const f = FRUITS[b.fruitIdx];
+    drawFruit(b.position.x, b.position.y, f.r, f.color, f.shadow, f.name, f.style);
+  }
+
+  // aiming ghost under the drop guide (drawn on top)
+  updateGuideUI();
+
+  requestAnimationFrame(loop);
+}
+
+function updateGuideUI() {
+  const f = FRUITS[curIdx];
+  const x = clamp(cursorX, f.r + 2, canvasW - f.r - 2);
+  const dropY = WALL_TOP - f.r - 2;
+
+  // hide CSS ghost - we draw the real ball on canvas now
+  dropGhost.style.display = 'none';
+
+  // drop guide line
+  dropGuide.style.left = x + 'px';
+
+  // draw real current ball at aim position with slight transparency
+  ctx.save();
+  ctx.globalAlpha = canDrop ? 0.82 : 0.4;
+  drawFruitOn(ctx, x, dropY, f.r, f.color, f.shadow, f.name, f.style);
+  ctx.restore();
+
+  // dotted aim line from ball to bottom
+  ctx.save();
+  ctx.setLineDash([4, 6]);
+  ctx.strokeStyle = 'rgba(72,202,228,0.25)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x, dropY + f.r);
+  ctx.lineTo(x, canvasH);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+// ─── NEXT PREVIEW ────────────────────────────────────────────────────────────
+function drawNext() {
+  // Draw the NEXT ball (nxtIdx) with full style on the preview canvas
+  const f = FRUITS[nxtIdx];
+  const SIZE = 72;
+  nctx.clearRect(0, 0, SIZE, SIZE);
+  const cx = SIZE/2, cy = SIZE/2, r = 28;
+  // Temporarily swap ctx so drawFruit renders onto nctx
+  const mainCtx = ctx;
+  // Can't swap easily, so inline a faithful scaled version:
+  drawFruitOn(nctx, cx, cy, r, f.color, f.shadow, f.name, f.style);
+}
+
+function drawFruitOn(c, cx, cy, r, color, shadow, label, style) {
+  // drop shadow
+  c.save();
+  c.shadowColor = 'rgba(0,0,0,0.55)';
+  c.shadowBlur  = r * 0.6;
+  c.shadowOffsetX = 1; c.shadowOffsetY = 2;
+  c.beginPath(); c.arc(cx, cy, r, 0, Math.PI*2);
+  c.fillStyle = shadow; c.fill();
+  c.restore();
+
+  c.save();
+  c.beginPath(); c.arc(cx, cy, r, 0, Math.PI*2); c.clip();
+
+  if (style === 'meteor') {
+    const g = c.createRadialGradient(cx-r*.2,cy-r*.2,r*.05,cx,cy,r);
+    g.addColorStop(0,'#c8a878'); g.addColorStop(.5,'#8b6840'); g.addColorStop(1,'#3d2810');
+    c.fillStyle=g; c.fillRect(cx-r,cy-r,r*2,r*2);
+    [[- r*.3,r*.1,r*.18],[r*.25,-r*.3,r*.12],[-r*.1,r*.35,r*.1],[r*.35,-r*.1,r*.14]].forEach(([ox,oy,cr])=>{
+      c.beginPath(); c.arc(cx+ox,cy+oy,cr,0,Math.PI*2); c.fillStyle='rgba(0,0,0,0.35)'; c.fill();
+      c.beginPath(); c.arc(cx+ox-cr*.3,cy+oy-cr*.3,cr*.4,0,Math.PI*2); c.fillStyle='rgba(255,255,255,0.12)'; c.fill();
+    });
+  } else if (style === 'shard') {
+    const g = c.createRadialGradient(cx-r*.3,cy-r*.3,r*.05,cx,cy,r);
+    g.addColorStop(0,'#e0f7ff'); g.addColorStop(.4,'#4fc3f7'); g.addColorStop(1,'#0277bd');
+    c.fillStyle=g; c.fillRect(cx-r,cy-r,r*2,r*2);
+    c.strokeStyle='rgba(255,255,255,0.35)'; c.lineWidth=1;
+    [[0,-r*.7,r*.5,r*.3],[0,-r*.7,-r*.5,r*.3],[r*.5,r*.3,-r*.5,r*.3]].forEach(([x1,y1,x2,y2])=>{
+      c.beginPath(); c.moveTo(cx+x1,cy+y1); c.lineTo(cx+x2,cy+y2); c.stroke();
+    });
+  } else if (style === 'probe') {
+    const g = c.createLinearGradient(cx-r,cy-r,cx+r,cy+r);
+    g.addColorStop(0,'#b0bec5'); g.addColorStop(.5,'#607d8b'); g.addColorStop(1,'#263238');
+    c.fillStyle=g; c.fillRect(cx-r,cy-r,r*2,r*2);
+    c.strokeStyle='rgba(0,0,0,0.3)'; c.lineWidth=1;
+    for(let i=-1;i<=1;i++){c.beginPath();c.moveTo(cx-r,cy+i*r*.35);c.lineTo(cx+r,cy+i*r*.35);c.stroke();}
+    for(let i=-1;i<=1;i++){c.beginPath();c.moveTo(cx+i*r*.35,cy-r);c.lineTo(cx+i*r*.35,cy+r);c.stroke();}
+    c.beginPath(); c.arc(cx,cy,r*.18,0,Math.PI*2); c.fillStyle='#eceff1'; c.fill();
+  } else if (style === 'ion') {
+    const g = c.createRadialGradient(cx,cy,r*.05,cx,cy,r);
+    g.addColorStop(0,'#ffffff'); g.addColorStop(.25,'#80ffff'); g.addColorStop(.65,'#00e5ff'); g.addColorStop(1,'#006064');
+    c.fillStyle=g; c.fillRect(cx-r,cy-r,r*2,r*2);
+    c.strokeStyle='rgba(255,255,255,0.5)'; c.lineWidth=1.2;
+    [[-r*.5,-r*.4,-r*.1,r*.1,r*.4,r*.5],[r*.3,-r*.5,0,0,-r*.3,r*.5]].forEach(pts=>{
+      c.beginPath(); c.moveTo(cx+pts[0],cy+pts[1]);
+      for(let i=2;i<pts.length;i+=2) c.lineTo(cx+pts[i],cy+pts[i+1]);
+      c.stroke();
+    });
+  } else if (style === 'pulsar') {
+    const g = c.createRadialGradient(cx,cy,r*.05,cx,cy,r);
+    g.addColorStop(0,'#ff80ff'); g.addColorStop(.4,'#e040fb'); g.addColorStop(.8,'#6a0080'); g.addColorStop(1,'#2d0040');
+    c.fillStyle=g; c.fillRect(cx-r,cy-r,r*2,r*2);
+    for(let i=1;i<=3;i++){
+      c.beginPath(); c.arc(cx,cy,r*(i/4),0,Math.PI*2);
+      c.strokeStyle=`rgba(255,180,255,${0.35-i*0.08})`; c.lineWidth=1; c.stroke();
+    }
+    c.strokeStyle='rgba(255,220,255,0.6)'; c.lineWidth=1.2;
+    [[0,-r*.8,0,r*.8],[-r*.8,0,r*.8,0]].forEach(([x1,y1,x2,y2])=>{
+      c.beginPath(); c.moveTo(cx+x1,cy+y1); c.lineTo(cx+x2,cy+y2); c.stroke();
+    });
+  } else if (style === 'vortex') {
+    const g = c.createRadialGradient(cx,cy,r*.1,cx,cy,r);
+    g.addColorStop(0,'#a7ffeb'); g.addColorStop(.4,'#00bfa5'); g.addColorStop(1,'#00251a');
+    c.fillStyle=g; c.fillRect(cx-r,cy-r,r*2,r*2);
+    c.strokeStyle='rgba(167,255,235,0.45)'; c.lineWidth=1.2;
+    for(let arm=0;arm<3;arm++){
+      c.beginPath();
+      for(let t=0;t<Math.PI*1.5;t+=0.1){
+        const sr=t/(Math.PI*1.5)*r*.85, ang=t+arm*(Math.PI*2/3);
+        const px=cx+Math.cos(ang)*sr, py=cy+Math.sin(ang)*sr;
+        t===0?c.moveTo(px,py):c.lineTo(px,py);
+      }
+      c.stroke();
+    }
+  } else if (style === 'nova') {
+    const g = c.createRadialGradient(cx,cy,r*.05,cx,cy,r);
+    g.addColorStop(0,'#fff9c4'); g.addColorStop(.2,'#ffcc02'); g.addColorStop(.55,'#ff6d00'); g.addColorStop(1,'#4a1000');
+    c.fillStyle=g; c.fillRect(cx-r,cy-r,r*2,r*2);
+    c.strokeStyle='rgba(255,220,80,0.5)'; c.lineWidth=1.2;
+    for(let i=0;i<8;i++){
+      const ang=i*Math.PI/4, len=r*(.65+Math.sin(i*2.3)*.2);
+      c.beginPath(); c.moveTo(cx+Math.cos(ang)*r*.3,cy+Math.sin(ang)*r*.3);
+      c.lineTo(cx+Math.cos(ang)*len,cy+Math.sin(ang)*len); c.stroke();
+    }
+  } else if (style === 'quasar') {
+    const g = c.createRadialGradient(cx-r*.2,cy-r*.2,r*.05,cx,cy,r);
+    g.addColorStop(0,'#8c9eff'); g.addColorStop(.4,'#3d5afe'); g.addColorStop(.8,'#1a237e'); g.addColorStop(1,'#0a0d3a');
+    c.fillStyle=g; c.fillRect(cx-r,cy-r,r*2,r*2);
+    for(let i=1;i<=4;i++){
+      c.beginPath(); c.arc(cx,cy,r*i/4.5,0,Math.PI*2);
+      c.strokeStyle=`rgba(140,158,255,${0.5-i*.09})`; c.lineWidth=1.2; c.stroke();
+    }
+    c.strokeStyle='rgba(180,200,255,0.55)'; c.lineWidth=1.5;
+    [[0,-r*.9,0,r*.9],[-r*.9,0,r*.9,0]].forEach(([x1,y1,x2,y2])=>{
+      c.beginPath(); c.moveTo(cx+x1,cy+y1); c.lineTo(cx+x2,cy+y2); c.stroke();
+    });
+  } else if (style === 'planet') {
+    const g = c.createRadialGradient(cx-r*.25,cy-r*.25,r*.1,cx,cy,r);
+    g.addColorStop(0,'#a7ffeb'); g.addColorStop(.45,'#1de9b6'); g.addColorStop(1,'#004d40');
+    c.fillStyle=g; c.fillRect(cx-r,cy-r,r*2,r*2);
+    c.fillStyle='rgba(0,200,130,0.3)';
+    [[r*.2,-r*.2,r*.35],[-r*.25,r*.1,r*.28],[r*.1,r*.3,r*.2]].forEach(([ox,oy,cr])=>{
+      c.beginPath(); c.ellipse(cx+ox,cy+oy,cr,cr*.65,0.5,0,Math.PI*2); c.fill();
+    });
+    c.restore();
+    c.save();
+    c.strokeStyle='rgba(29,233,182,0.35)'; c.lineWidth=2.5;
+    c.beginPath(); c.ellipse(cx,cy,r*1.18,r*.35,Math.PI/6,0,Math.PI*2); c.stroke();
+    c.save();
+  } else if (style === 'nebula') {
+    const g = c.createRadialGradient(cx,cy,r*.05,cx,cy,r);
+    g.addColorStop(0,'#ea80ff'); g.addColorStop(.35,'#aa00ff'); g.addColorStop(.75,'#4a0072'); g.addColorStop(1,'#1a0030');
+    c.fillStyle=g; c.fillRect(cx-r,cy-r,r*2,r*2);
+    for(let i=0;i<6;i++){
+      const ang=i*Math.PI/3+Math.PI/6;
+      const g2=c.createRadialGradient(cx+Math.cos(ang)*r*.5,cy+Math.sin(ang)*r*.5,0,cx+Math.cos(ang)*r*.5,cy+Math.sin(ang)*r*.5,r*.45);
+      g2.addColorStop(0,'rgba(200,100,255,0.4)'); g2.addColorStop(1,'transparent');
+      c.fillStyle=g2; c.fillRect(cx-r,cy-r,r*2,r*2);
+    }
+    c.beginPath(); c.arc(cx,cy,r*.18,0,Math.PI*2); c.fillStyle='rgba(255,255,255,0.85)'; c.fill();
+  } else if (style === 'cypher') {
+    const g = c.createRadialGradient(cx,cy,r*.08,cx,cy,r);
+    g.addColorStop(0,'#001a26'); g.addColorStop(.3,'#003344'); g.addColorStop(.7,'#005566'); g.addColorStop(1,'#002233');
+    c.fillStyle=g; c.fillRect(cx-r,cy-r,r*2,r*2);
+    c.font = `${r*.13}px 'Orbitron', monospace`;
+    c.textAlign='center'; c.textBaseline='middle';
+    const chars='01010110';
+    for(let row=-3;row<=3;row++){
+      for(let col=-2;col<=2;col++){
+        const alpha=0.12+Math.random()*0.18;
+        c.fillStyle=`rgba(0,229,255,${alpha})`;
+        c.fillText(chars[(Math.abs(row*3+col))%8],cx+col*r*.3,cy+row*r*.28);
+      }
+    }
+    for(let i=1;i<=4;i++){
+      c.beginPath(); c.arc(cx,cy,r*i/4.8,0,Math.PI*2);
+      c.strokeStyle=`rgba(0,229,255,${0.6-i*.12})`; c.lineWidth=i===1?2:1; c.stroke();
+    }
+    const sg=c.createRadialGradient(cx,cy,0,cx,cy,r*.12);
+    sg.addColorStop(0,'rgba(255,255,255,0.95)'); sg.addColorStop(.5,'rgba(0,229,255,0.6)'); sg.addColorStop(1,'transparent');
+    c.fillStyle=sg; c.beginPath(); c.arc(cx,cy,r*.12,0,Math.PI*2); c.fill();
+  } else {
+    const g = c.createRadialGradient(cx-r*.3,cy-r*.3,r*.1,cx,cy,r);
+    g.addColorStop(0, lighten(color,40)); g.addColorStop(.55,color); g.addColorStop(1,shadow);
+    c.fillStyle=g; c.fillRect(cx-r,cy-r,r*2,r*2);
+  }
+
+  c.restore();
+
+  // rim glow
+  c.save();
+  c.beginPath(); c.arc(cx,cy,r,0,Math.PI*2);
+  c.strokeStyle = style==='cypher' ? 'rgba(0,229,255,0.7)' :
+                  style==='nebula'  ? 'rgba(220,100,255,0.6)' :
+                  style==='nova'    ? 'rgba(255,180,0,0.6)'   :
+                  'rgba(255,255,255,0.18)';
+  c.lineWidth = style==='cypher'?2.5:1.5;
+  if (style==='cypher'||style==='nebula'||style==='nova') {
+    c.shadowColor=c.strokeStyle; c.shadowBlur=r*.35;
+  }
+  c.stroke();
+  c.restore();
+
+  // label
+  c.save();
+  c.beginPath(); c.arc(cx,cy,r,0,Math.PI*2); c.clip();
+  const fs = Math.max(7, Math.floor(r * .22));
+  c.font = `700 ${fs}px 'Orbitron', monospace`;
+  c.textAlign='center'; c.textBaseline='middle';
+  c.fillStyle = style==='meteor'?'rgba(255,230,180,0.9)':'rgba(255,255,255,0.92)';
+  c.shadowColor='rgba(0,0,0,0.8)'; c.shadowBlur=3;
+  c.fillText(label, cx, cy);
+  c.restore();
+}
+
+// ─── GUIDE STRIP ─────────────────────────────────────────────────────────────
+function buildGuide() {
+  const strip = document.getElementById('guide-strip');
+  strip.innerHTML = '';
+  FRUITS.forEach(f => {
+    const d = Math.min(f.r * .7 + 6, 26);
+    const item = document.createElement('div');
+    item.className = 'g-item';
+    item.innerHTML = `
+      <div class="g-circle" style="width:${d}px;height:${d}px;background:${f.color};border-color:${f.shadow};box-shadow:0 0 6px ${f.color}88"></div>
+      <div class="g-pts" style="color:${f.color};text-shadow:0 0 4px ${f.color}88">${f.name.slice(0,3)}</div>`;
+    strip.appendChild(item);
+  });
+}
+
+// ─── EFFECTS ─────────────────────────────────────────────────────────────────
+function spawnBurst(x, y, r, color) {
+  const el = document.createElement('div');
+  el.className = 'burst';
+  el.style.cssText = `left:${x}px;top:${y}px;width:${r*2}px;height:${r*2}px;
+    background:radial-gradient(circle,${color}cc 0%,transparent 70%);`;
+  container.appendChild(el);
+  el.addEventListener('animationend', () => el.remove());
+}
+
+function spawnScorePop(x, y, pts) {
+  const el = document.createElement('div');
+  el.className = 'score-pop';
+  el.textContent = '+' + pts;
+  el.style.cssText = `left:${x}px;top:${y}px;`;
+  container.appendChild(el);
+  el.addEventListener('animationend', () => el.remove());
+}
+
+// ─── INPUT (touch + mouse) ───────────────────────────────────────────────────
+function getX(e) {
+  const rect = container.getBoundingClientRect();
+  if (e.touches) return e.touches[0].clientX - rect.left;
+  return e.clientX - rect.left;
+}
+
+container.addEventListener('touchstart',  e => {
+  if (!gameActive) return;
+  e.preventDefault(); cursorX = getX(e);
+}, {passive:false});
+container.addEventListener('touchmove',   e => {
+  if (!gameActive) return;
+  e.preventDefault(); cursorX = getX(e);
+}, {passive:false});
+container.addEventListener('touchend',    e => {
+  if (!gameActive) return;
+  e.preventDefault(); dropFruit();
+}, {passive:false});
+container.addEventListener('mousemove',   e => { if (gameActive) cursorX = getX(e); });
+container.addEventListener('click',       e => { if (gameActive) dropFruit(); });
+
+startBtn.addEventListener('click',    startGame);
+startBtn.addEventListener('touchend', startGame, {passive:false});
+
+// ─── SCORE ───────────────────────────────────────────────────────────────────
+function updateScore(v) {
+  score = v;
+  scoreEl.textContent = score;
+  if (score > best) { best = score; bestEl.textContent = best; }
+}
+
+// ─── UTILS ───────────────────────────────────────────────────────────────────
+function rand5() { return Math.floor(Math.random() * MAX_DROP); }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function lighten(hex, amt) {
+  let c = parseInt(hex.slice(1), 16);
+  let r = Math.min(255, ((c>>16)&255) + amt);
+  let g = Math.min(255, ((c>>8)&255)  + amt);
+  let b = Math.min(255, (c&255)       + amt);
+  return `rgb(${r},${g},${b})`;
+}
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+resize();
+buildGuide();
+window.addEventListener('resize', () => { if (!gameActive) resize(); });
+</script>
+</body>
+</html>
